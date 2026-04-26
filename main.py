@@ -9,7 +9,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://darky-github.github.io/seerch-engine/",
+        "https://darky-github.github.io",
         "https://darky-github.github.io/seerch-engine"
     ],
     allow_credentials=True,

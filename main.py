@@ -1,11 +1,14 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from supabase import create_client
 import os
 import time
 
 app = FastAPI()
+
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -58,13 +61,7 @@ def match_known(q, known):
         url = (site.get("url") or "").lower()
         category = (site.get("category") or "").lower()
 
-        if (
-            q == name or
-            name in q or
-            q in name or
-            q in url or
-            q in category
-        ):
+        if q == name or name in q or q in name or q in url or q in category:
             return site
     return None
 

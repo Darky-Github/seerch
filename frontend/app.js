@@ -2,6 +2,10 @@ async function search() {
   const q = document.getElementById("query").value;
   const resultsBox = document.getElementById("results");
 
+  // update URL (no reload)
+  const newUrl = `/search?q=${encodeURIComponent(q)}`;
+  window.history.pushState({}, "", newUrl);
+
   resultsBox.innerHTML = "Searching...";
 
   try {
@@ -19,11 +23,9 @@ async function search() {
       const div = document.createElement("div");
       div.className = "result";
 
-      const statusLabel = item.status ? `(${item.status})` : "";
-
       div.innerHTML = `
         <a href="${item.url}" target="_blank">${item.title}</a>
-        <div class="score">Score: ${item.score} ${statusLabel}</div>
+        <div class="score">Score: ${item.score} (${item.status})</div>
       `;
 
       resultsBox.appendChild(div);

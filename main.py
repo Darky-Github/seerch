@@ -27,6 +27,8 @@ rate_store = {}
 LIMIT = 30
 WINDOW = 60
 
+cache = {}
+
 
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
@@ -54,23 +56,10 @@ def get_verified():
     res = supabase.table("verified_sites").select("*").execute()
     data = res.data or []
 
-    cleaned = []
-    for v in data:
-        if v.get("url") and v.get("name"):
-            cleaned.append(v)
-
-    return cleaned
-
-
-def match_known(q, known):
-    for site in known:
-        name = (site.get("name") or "").lower()
-        url = (site.get("url") or "").lower()
-        category = (site.get("category") or "").lower()
-
-        if q == name or name in q or q in name or q in url or q in category:
-            return site
-    return None
+    return [
+        v for v in data
+        if v.get("url") and v.get("name")
+    ]
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -79,37 +68,42 @@ def home():
         return f.read()
 
 
-@app.get("/search")
+@app.get("/api/search")
 def search(q: str):
     q_lower = q.lower().strip()
+
+    if q_lower in cache:
+        return cache[q_lower]
 
     known = get_known()
     verified = get_verified()
 
-    verified_map = {
-        v.get("url", "").lower(): v
-        for v in verified
-        if v.get("url")
-    }
-    
-    match = match_known(q_lower, known)
+    verified_set = {v["url"].lower() for v in verified}
 
     results = []
 
-    if match:
-        url = match["url"].lower()
-        is_verified = url in verified_map
+    for site in known:
+        name = (site.get("name") or "").lower()
+        url = (site.get("url") or "").lower()
 
-        results.append({
-            "title": match["name"],
-            "url": match["url"],
-            "score": 100,
-            "type": "known",
-            "status": "secure" if is_verified else "known",
-            "verified": is_verified
-        })
+        if q_lower == name or q_lower in name or q_lower in url:
+            is_verified = url in verified_set
 
-    pages = supabase.table("pages").select("*").execute().data or []
+            results.append({
+                "title": site["name"],
+                "url": site["url"],
+                "score": 100,
+                "type": "known",
+                "status": "secure" if is_verified else "known"
+            })
+
+    page_res = supabase.table("pages") \
+        .select("title,url,text") \
+        .ilike("text", f"%{q_lower}%") \
+        .limit(20) \
+        .execute()
+
+    pages = page_res.data or []
 
     page_results = []
 
@@ -120,21 +114,28 @@ def search(q: str):
 
         score = text.count(q_lower)
 
+        if q_lower in title.lower():
+            score += 5
+
+        if url in verified_set:
+            score += 10
+            status = "secure"
+        else:
+            status = "page"
+
         if score > 0:
-            is_verified = url in verified_map
-
-            if is_verified:
-                score += 10
-
             page_results.append({
                 "title": title,
                 "url": url,
                 "score": score,
                 "type": "page",
-                "status": "secure" if is_verified else "page",
-                "verified": is_verified
+                "status": status
             })
 
     page_results.sort(key=lambda x: x["score"], reverse=True)
 
-    return results + page_results[:9]
+    final_results = results + page_results[:9]
+
+    cache[q_lower] = final_results
+
+    return final_results

@@ -24,7 +24,7 @@ supabase = create_client(
 
 rate_store = {}
 LIMIT = 30
-WINDOW = 60  # seconds
+WINDOW = 60
 
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
@@ -43,21 +43,32 @@ async def rate_limit(request: Request, call_next):
 
     return await call_next(request)
 
-def get_known_sites():
+
+def get_known():
     return supabase.table("known_sites").select("*").execute().data
 
-def get_verified_sites():
+
+def get_verified():
     return supabase.table("verified_sites").select("*").execute().data
+
 
 @app.get("/search")
 def search(q: str):
-    q_lower = q.lower()
+    q_lower = q.lower().strip()
 
-    known = get_known_sites()
-    verified = get_verified_sites()
+    known = get_known()
+    verified = get_verified()
 
     for site in known:
-        if q_lower in site["name"].lower():
+        name = site.get("name", "").lower()
+        url = site.get("url", "").lower()
+
+        if (
+            q_lower == name or
+            name in q_lower or
+            q_lower in name or
+            q_lower in url
+        ):
             return [{
                 "title": site["name"],
                 "url": site["url"],

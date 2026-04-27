@@ -26,6 +26,7 @@ rate_store = {}
 LIMIT = 30
 WINDOW = 60
 
+
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
     ip = request.client.host
@@ -40,7 +41,6 @@ async def rate_limit(request: Request, call_next):
         raise HTTPException(status_code=429, detail="Too many requests")
 
     rate_store[ip].append(now)
-
     return await call_next(request)
 
 
@@ -54,18 +54,18 @@ def get_verified():
     return res.data or []
 
 
-def match_known(q_lower, known):
+def match_known(q, known):
     for site in known:
         name = (site.get("name") or "").lower()
         url = (site.get("url") or "").lower()
         category = (site.get("category") or "").lower()
 
         if (
-            q_lower == name or
-            name in q_lower or
-            q_lower in name or
-            q_lower in url or
-            q_lower in category
+            q == name or
+            name in q or
+            q in name or
+            q in url or
+            q in category
         ):
             return site
 
@@ -79,44 +79,50 @@ def search(q: str):
     known = get_known()
     verified = get_verified()
 
-    print([s["name"] for s in known])
+    verified_map = {v["url"].lower(): v for v in verified}
 
     match = match_known(q_lower, known)
 
+    known_results = []
+    page_results = []
+
     if match:
-        return [{
+        url = match["url"].lower()
+        is_verified = url in verified_map
+
+        known_results.append({
             "title": match["name"],
             "url": match["url"],
-            "score": 9999,
+            "score": 100,
             "type": "known",
-            "category": match.get("category", "")
-        }]
+            "status": "secure" if is_verified else "known",
+            "verified": is_verified
+        })
 
     data = supabase.table("pages").select("*").execute().data or []
-
-    results = []
 
     for page in data:
         text = (page.get("text") or "").lower()
         title = page.get("title") or ""
-        url = page.get("url") or ""
+        url = (page.get("url") or "").lower()
 
         score = text.count(q_lower)
 
         if score > 0:
-            domain = url.split("/")[2] if "://" in url else ""
+            is_verified = url in verified_map
 
-            for v in verified:
-                if v.get("domain") == domain:
-                    score += 5
+            if is_verified:
+                score += 10
 
-            results.append({
+            page_results.append({
                 "title": title,
                 "url": url,
                 "score": score,
-                "type": "page"
+                "type": "page",
+                "status": "secure" if is_verified else "page",
+                "verified": is_verified
             })
 
-    results.sort(key=lambda x: x["score"], reverse=True)
+    page_results.sort(key=lambda x: x["score"], reverse=True)
 
-    return results[:10]
+    return known_results + page_results[:9]

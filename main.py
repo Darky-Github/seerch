@@ -52,6 +52,26 @@ def get_verified():
     return supabase.table("verified_sites").select("*").execute().data
 
 
+def match_known(q_lower, known):
+    for site in known:
+        name = (site.get("name") or "").lower()
+        url = (site.get("url") or "").lower()
+        category = (site.get("category") or "").lower()
+        desc = (site.get("description") or "").lower()
+
+        if (
+            q_lower == name or
+            name in q_lower or
+            q_lower in name or
+            q_lower in url or
+            q_lower in category or
+            any(word in name for word in q_lower.split())
+        ):
+            return site
+
+    return None
+
+
 @app.get("/search")
 def search(q: str):
     q_lower = q.lower().strip()
@@ -59,22 +79,16 @@ def search(q: str):
     known = get_known()
     verified = get_verified()
 
-    for site in known:
-        name = site.get("name", "").lower()
-        url = site.get("url", "").lower()
+    match = match_known(q_lower, known)
 
-        if (
-            q_lower == name or
-            name in q_lower or
-            q_lower in name or
-            q_lower in url
-        ):
-            return [{
-                "title": site["name"],
-                "url": site["url"],
-                "score": 9999,
-                "type": "known"
-            }]
+    if match:
+        return [{
+            "title": match["name"],
+            "url": match["url"],
+            "score": 9999,
+            "type": "known",
+            "category": match.get("category", "")
+        }]
 
     data = supabase.table("pages").select("*").execute().data
 
@@ -91,7 +105,7 @@ def search(q: str):
             domain = url.split("/")[2] if "://" in url else ""
 
             for v in verified:
-                if v["domain"] in domain:
+                if v["domain"] == domain:
                     score += 5
 
             results.append({

@@ -45,11 +45,13 @@ async def rate_limit(request: Request, call_next):
 
 
 def get_known():
-    return supabase.table("known_sites").select("*").execute().data
+    res = supabase.table("known_sites").select("*").execute()
+    return res.data or []
 
 
 def get_verified():
-    return supabase.table("verified_sites").select("*").execute().data
+    res = supabase.table("verified_sites").select("*").execute()
+    return res.data or []
 
 
 def match_known(q_lower, known):
@@ -57,15 +59,13 @@ def match_known(q_lower, known):
         name = (site.get("name") or "").lower()
         url = (site.get("url") or "").lower()
         category = (site.get("category") or "").lower()
-        desc = (site.get("description") or "").lower()
 
         if (
             q_lower == name or
             name in q_lower or
             q_lower in name or
             q_lower in url or
-            q_lower in category or
-            any(word in name for word in q_lower.split())
+            q_lower in category
         ):
             return site
 
@@ -79,6 +79,8 @@ def search(q: str):
     known = get_known()
     verified = get_verified()
 
+    print([s["name"] for s in known])
+
     match = match_known(q_lower, known)
 
     if match:
@@ -90,14 +92,14 @@ def search(q: str):
             "category": match.get("category", "")
         }]
 
-    data = supabase.table("pages").select("*").execute().data
+    data = supabase.table("pages").select("*").execute().data or []
 
     results = []
 
     for page in data:
-        text = page.get("text", "").lower()
-        title = page.get("title", "")
-        url = page.get("url", "")
+        text = (page.get("text") or "").lower()
+        title = page.get("title") or ""
+        url = page.get("url") or ""
 
         score = text.count(q_lower)
 
@@ -105,7 +107,7 @@ def search(q: str):
             domain = url.split("/")[2] if "://" in url else ""
 
             for v in verified:
-                if v["domain"] == domain:
+                if v.get("domain") == domain:
                     score += 5
 
             results.append({

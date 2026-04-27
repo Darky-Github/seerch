@@ -52,7 +52,14 @@ def get_known():
 
 def get_verified():
     res = supabase.table("verified_sites").select("*").execute()
-    return res.data or []
+    data = res.data or []
+
+    cleaned = []
+    for v in data:
+        if v.get("url") and v.get("name"):
+            cleaned.append(v)
+
+    return cleaned
 
 
 def match_known(q, known):
@@ -79,8 +86,12 @@ def search(q: str):
     known = get_known()
     verified = get_verified()
 
-    verified_map = {v["url"].lower(): v for v in verified}
-
+    verified_map = {
+        v.get("url", "").lower(): v
+        for v in verified
+        if v.get("url")
+    }
+    
     match = match_known(q_lower, known)
 
     results = []

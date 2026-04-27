@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from supabase import create_client
 import os
 import time
@@ -8,10 +9,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://darky-github.github.io",
-        "https://darky-github.github.io/seerch-engine"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,8 +66,13 @@ def match_known(q, known):
             q in category
         ):
             return site
-
     return None
+
+
+@app.get("/", response_class=HTMLResponse)
+def home():
+    with open("frontend/index.html", "r", encoding="utf-8") as f:
+        return f.read()
 
 
 @app.get("/search")
@@ -83,14 +86,13 @@ def search(q: str):
 
     match = match_known(q_lower, known)
 
-    known_results = []
-    page_results = []
+    results = []
 
     if match:
         url = match["url"].lower()
         is_verified = url in verified_map
 
-        known_results.append({
+        results.append({
             "title": match["name"],
             "url": match["url"],
             "score": 100,
@@ -99,9 +101,11 @@ def search(q: str):
             "verified": is_verified
         })
 
-    data = supabase.table("pages").select("*").execute().data or []
+    pages = supabase.table("pages").select("*").execute().data or []
 
-    for page in data:
+    page_results = []
+
+    for page in pages:
         text = (page.get("text") or "").lower()
         title = page.get("title") or ""
         url = (page.get("url") or "").lower()
@@ -125,4 +129,4 @@ def search(q: str):
 
     page_results.sort(key=lambda x: x["score"], reverse=True)
 
-    return known_results + page_results[:9]
+    return results + page_results[:9]

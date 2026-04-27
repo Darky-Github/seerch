@@ -2,9 +2,7 @@ async function search() {
   const q = document.getElementById("query").value;
   const resultsBox = document.getElementById("results");
 
-  // update URL (no reload)
-  const newUrl = `/search?q=${encodeURIComponent(q)}`;
-  window.history.pushState({}, "", newUrl);
+  window.history.pushState({}, "", `/search?q=${encodeURIComponent(q)}`);
 
   resultsBox.innerHTML = "Searching...";
 
@@ -35,3 +33,13 @@ async function search() {
     resultsBox.innerHTML = "<p>Error fetching results</p>";
   }
 }
+
+window.onload = () => {
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get("q");
+
+  if (q) {
+    document.getElementById("query").value = q;
+    search();
+  }
+};

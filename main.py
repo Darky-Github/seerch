@@ -56,10 +56,18 @@ def get_verified():
     res = supabase.table("verified_sites").select("*").execute()
     data = res.data or []
 
-    return [
-        v for v in data
-        if v.get("url") and v.get("name")
-    ]
+    return [v for v in data if v.get("url") and v.get("name")]
+
+
+def match_known(q, known):
+    for site in known:
+        name = (site.get("name") or "").lower()
+        url = (site.get("url") or "").lower()
+        category = (site.get("category") or "").lower()
+
+        if q == name or name in q or q in name or q in url or q in category:
+            return site
+    return None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -82,20 +90,19 @@ def search(q: str):
 
     results = []
 
-    for site in known:
-        name = (site.get("name") or "").lower()
-        url = (site.get("url") or "").lower()
+    match = match_known(q_lower, known)
 
-        if q_lower == name or q_lower in name or q_lower in url:
-            is_verified = url in verified_set
+    if match:
+        url = match["url"].lower()
+        is_verified = url in verified_set
 
-            results.append({
-                "title": site["name"],
-                "url": site["url"],
-                "score": 100,
-                "type": "known",
-                "status": "secure" if is_verified else "known"
-            })
+        results.append({
+            "title": match["name"],
+            "url": match["url"],
+            "score": 100,
+            "type": "known",
+            "status": "secure" if is_verified else "known"
+        })
 
     page_res = supabase.table("pages") \
         .select("title,url,text") \

@@ -76,7 +76,7 @@ def home():
         return f.read()
 
 
-@app.get("/api/search")
+@app.get("/search")
 def search(q: str):
     q_lower = q.lower().strip()
 

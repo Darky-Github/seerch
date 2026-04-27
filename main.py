@@ -22,7 +22,7 @@ supabase = create_client(
     os.getenv("SUPABASE_KEY")
 )
 
-requests = {}
+rate_store = {}
 LIMIT = 30
 WINDOW = 60  # seconds
 
@@ -31,20 +31,40 @@ async def rate_limit(request: Request, call_next):
     ip = request.client.host
     now = time.time()
 
-    if ip not in requests:
-        requests[ip] = []
+    if ip not in rate_store:
+        rate_store[ip] = []
 
-    requests[ip] = [t for t in requests[ip] if now - t < WINDOW]
+    rate_store[ip] = [t for t in rate_store[ip] if now - t < WINDOW]
 
-    if len(requests[ip]) >= LIMIT:
+    if len(rate_store[ip]) >= LIMIT:
         raise HTTPException(status_code=429, detail="Too many requests")
 
-    requests[ip].append(now)
+    rate_store[ip].append(now)
 
     return await call_next(request)
-    
+
+def get_known_sites():
+    return supabase.table("known_sites").select("*").execute().data
+
+def get_verified_sites():
+    return supabase.table("verified_sites").select("*").execute().data
+
 @app.get("/search")
 def search(q: str):
+    q_lower = q.lower()
+
+    known = get_known_sites()
+    verified = get_verified_sites()
+
+    for site in known:
+        if q_lower in site["name"].lower():
+            return [{
+                "title": site["name"],
+                "url": site["url"],
+                "score": 9999,
+                "type": "known"
+            }]
+
     data = supabase.table("pages").select("*").execute().data
 
     results = []
@@ -54,13 +74,20 @@ def search(q: str):
         title = page.get("title", "")
         url = page.get("url", "")
 
-        score = text.count(q.lower())
+        score = text.count(q_lower)
 
         if score > 0:
+            domain = url.split("/")[2] if "://" in url else ""
+
+            for v in verified:
+                if v["domain"] in domain:
+                    score += 5
+
             results.append({
                 "title": title,
                 "url": url,
-                "score": score
+                "score": score,
+                "type": "page"
             })
 
     results.sort(key=lambda x: x["score"], reverse=True)

@@ -26,13 +26,16 @@ supabase = create_client(
 
 rate_store = {}
 cache = {}
+cache_time = {}
 
 LIMIT = 30
 WINDOW = 60
+CACHE_TTL = 300
 
 TITLE_BOOST = 5
 KNOWN_BOOST = 30
 
+# ------------------ RATE LIMIT ------------------
 
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
@@ -49,15 +52,101 @@ async def rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
+# ------------------ HOME ------------------
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     with open("frontend/index.html", "r", encoding="utf-8") as f:
         return f.read()
 
 
+# ------------------ TOKENIZE ------------------
+
 def tokenize(q):
     return re.findall(r"\b\w+\b", q.lower())
 
+
+# ------------------ VOCAB BUILD ------------------
+
+def build_vocab():
+    res = supabase.table("pages").select("title,text").execute()
+    pages = res.data or []
+
+    vocab = {}
+
+    for p in pages:
+        text = ((p.get("title") or "") + " " + (p.get("text") or "")).lower()
+        for w in tokenize(text):
+            vocab[w] = vocab.get(w, 0) + 1
+
+    return vocab
+
+
+VOCAB = build_vocab()
+
+
+# ------------------ LEVENSHTEIN ------------------
+
+def levenshtein(a, b):
+    if abs(len(a) - len(b)) > 2:
+        return 999
+
+    dp = list(range(len(b) + 1))
+
+    for i, ca in enumerate(a, 1):
+        prev = dp[0]
+        dp[0] = i
+
+        for j, cb in enumerate(b, 1):
+            temp = dp[j]
+            cost = 0 if ca == cb else 1
+
+            dp[j] = min(
+                dp[j] + 1,
+                dp[j - 1] + 1,
+                prev + cost
+            )
+
+            prev = temp
+
+    return dp[-1]
+
+
+# ------------------ SPELL CHECK ------------------
+
+def correct_query(words):
+    corrected = []
+    changed = False
+
+    for w in words:
+        if w in VOCAB:
+            corrected.append(w)
+            continue
+
+        best = None
+        best_score = 999
+
+        for v in VOCAB:
+            d = levenshtein(w, v)
+            if d < best_score:
+                best_score = d
+                best = v
+
+        if best_score <= 2 and best:
+            corrected.append(best)
+            changed = True
+        else:
+            corrected.append(w)
+
+    corrected_query = " ".join(corrected)
+
+    if changed:
+        return corrected_query
+
+    return None
+
+
+# ------------------ SEARCH ------------------
 
 def get_known():
     res = supabase.table("known_sites").select("*").execute()
@@ -68,14 +157,14 @@ def get_known_set():
     return {k["url"].lower() for k in get_known() if k.get("url")}
 
 
-def score_page(page, query_words, known_set):
+def score_page(page, words, known_set):
     text = (page.get("text") or "").lower()
     title = (page.get("title") or "").lower()
     url = (page.get("url") or "").lower()
 
     score = 0
 
-    for w in query_words:
+    for w in words:
         score += text.count(w)
         if w in title:
             score += TITLE_BOOST
@@ -88,13 +177,19 @@ def score_page(page, query_words, known_set):
 
 @app.get("/search")
 def search(q: str, limit: int = 20, offset: int = 0):
+
     q = q.lower().strip()
     cache_key = f"{q}:{limit}:{offset}"
 
-    if cache_key in cache:
+    if cache_key in cache and time.time() - cache_time.get(cache_key, 0) < CACHE_TTL:
         return cache[cache_key]
 
     words = tokenize(q)
+
+    did_you_mean = correct_query(words)
+    if did_you_mean:
+        words = tokenize(did_you_mean)
+
     known = get_known()
     known_set = get_known_set()
 
@@ -139,5 +234,12 @@ def search(q: str, limit: int = 20, offset: int = 0):
 
     final = results + scored[offset:offset + limit]
 
-    cache[cache_key] = final
-    return final
+    response = {
+        "did_you_mean": did_you_mean,
+        "results": final
+    }
+
+    cache[cache_key] = response
+    cache_time[cache_key] = time.time()
+
+    return response

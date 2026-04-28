@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from supabase import create_client
 import os
 import time
+import re
 
 app = FastAPI()
 
@@ -60,10 +61,8 @@ def get_known():
 def get_known_set():
     return {k["url"].lower() for k in get_known() if k.get("url")}
 
-
 def tokenize(q):
-    return q.lower().split()
-
+    return re.findall(r"\b\w+\b", q.lower())
 
 def normalize(score, max_score):
     if max_score <= 0:

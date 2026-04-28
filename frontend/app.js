@@ -12,12 +12,21 @@ async function search() {
 
     resultsBox.innerHTML = "";
 
-    if (!data.length) {
-      resultsBox.innerHTML = "<p>No results found</p>";
+    if (data.did_you_mean) {
+      const div = document.createElement("div");
+      div.className = "suggestion";
+      div.innerHTML = `Did you mean: <b>${data.did_you_mean}</b>?`;
+      resultsBox.appendChild(div);
+    }
+
+    const results = data.results || [];
+
+    if (!results.length) {
+      resultsBox.innerHTML += "<p>No results found</p>";
       return;
     }
 
-    data.forEach(item => {
+    results.forEach(item => {
       const div = document.createElement("div");
       div.className = "result";
 

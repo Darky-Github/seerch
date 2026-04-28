@@ -6,6 +6,7 @@ from supabase import create_client
 import os
 import time
 import re
+from math import log
 
 app = FastAPI()
 
@@ -32,10 +33,14 @@ LIMIT = 30
 WINDOW = 60
 CACHE_TTL = 300
 
-TITLE_BOOST = 5
+TITLE_BOOST = 3
 KNOWN_BOOST = 30
 
-# ------------------ RATE LIMIT ------------------
+DOC_FREQ = {}
+DOC_COUNT = 0
+
+
+# ---------------- RATE LIMIT ----------------
 
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
@@ -52,7 +57,7 @@ async def rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
-# ------------------ HOME ------------------
+# ---------------- HOME ----------------
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -60,32 +65,67 @@ def home():
         return f.read()
 
 
-# ------------------ TOKENIZE ------------------
+# ---------------- TOKENIZE ----------------
 
-def tokenize(q):
-    return re.findall(r"\b\w+\b", q.lower())
+def tokenize(text):
+    return re.findall(r"\b\w+\b", text.lower())
 
 
-# ------------------ VOCAB BUILD ------------------
+# ---------------- BUILD IDF ----------------
 
-def build_vocab():
+def build_idf():
+    global DOC_FREQ, DOC_COUNT
+
     res = supabase.table("pages").select("title,text").execute()
     pages = res.data or []
 
-    vocab = {}
+    DOC_COUNT = len(pages)
 
     for p in pages:
-        text = ((p.get("title") or "") + " " + (p.get("text") or "")).lower()
-        for w in tokenize(text):
-            vocab[w] = vocab.get(w, 0) + 1
+        words = set(tokenize((p.get("title") or "") + " " + (p.get("text") or "")))
 
-    return vocab
-
-
-VOCAB = build_vocab()
+        for w in words:
+            DOC_FREQ[w] = DOC_FREQ.get(w, 0) + 1
 
 
-# ------------------ LEVENSHTEIN ------------------
+def idf(word):
+    df = DOC_FREQ.get(word, 0)
+    return log((DOC_COUNT + 1) / (df + 1)) + 1
+
+
+build_idf()
+
+
+# ---------------- SPELLCHECK ----------------
+
+def correct_query(words):
+    vocab = DOC_FREQ.keys()
+
+    corrected = []
+    changed = False
+
+    for w in words:
+        if w in DOC_FREQ:
+            corrected.append(w)
+            continue
+
+        best = None
+        best_score = 999
+
+        for v in vocab:
+            d = levenshtein(w, v)
+            if d < best_score:
+                best_score = d
+                best = v
+
+        if best_score <= 2 and best:
+            corrected.append(best)
+            changed = True
+        else:
+            corrected.append(w)
+
+    return " ".join(corrected) if changed else None
+
 
 def levenshtein(a, b):
     if abs(len(a) - len(b)) > 2:
@@ -101,56 +141,16 @@ def levenshtein(a, b):
             temp = dp[j]
             cost = 0 if ca == cb else 1
 
-            dp[j] = min(
-                dp[j] + 1,
-                dp[j - 1] + 1,
-                prev + cost
-            )
-
+            dp[j] = min(dp[j] + 1, dp[j - 1] + 1, prev + cost)
             prev = temp
 
     return dp[-1]
 
 
-# ------------------ SPELL CHECK ------------------
-
-def correct_query(words):
-    corrected = []
-    changed = False
-
-    for w in words:
-        if w in VOCAB:
-            corrected.append(w)
-            continue
-
-        best = None
-        best_score = 999
-
-        for v in VOCAB:
-            d = levenshtein(w, v)
-            if d < best_score:
-                best_score = d
-                best = v
-
-        if best_score <= 2 and best:
-            corrected.append(best)
-            changed = True
-        else:
-            corrected.append(w)
-
-    corrected_query = " ".join(corrected)
-
-    if changed:
-        return corrected_query
-
-    return None
-
-
-# ------------------ SEARCH ------------------
+# ---------------- SEARCH HELPERS ----------------
 
 def get_known():
-    res = supabase.table("known_sites").select("*").execute()
-    return res.data or []
+    return supabase.table("known_sites").select("*").execute().data or []
 
 
 def get_known_set():
@@ -165,15 +165,19 @@ def score_page(page, words, known_set):
     score = 0
 
     for w in words:
-        score += text.count(w)
-        if w in title:
-            score += TITLE_BOOST
+        tf = text.count(w)
+        if tf:
+            score += tf * idf(w)
+            if w in title:
+                score += TITLE_BOOST * idf(w)
 
     if url in known_set:
         score += KNOWN_BOOST
 
-    return max(1, min(100, score))
+    return int(score)
 
+
+# ---------------- SEARCH ----------------
 
 @app.get("/search")
 def search(q: str, limit: int = 20, offset: int = 0):
@@ -185,8 +189,8 @@ def search(q: str, limit: int = 20, offset: int = 0):
         return cache[cache_key]
 
     words = tokenize(q)
-
     did_you_mean = correct_query(words)
+
     if did_you_mean:
         words = tokenize(did_you_mean)
 
@@ -204,29 +208,22 @@ def search(q: str, limit: int = 20, offset: int = 0):
                 "title": site["name"],
                 "url": site["url"],
                 "score": 100,
-                "type": "known",
                 "status": "known"
             })
             break
 
-    pages_res = supabase.table("pages") \
-        .select("id,title,url,text") \
-        .limit(200) \
-        .execute()
-
-    pages = pages_res.data or []
+    pages = supabase.table("pages").select("title,url,text").limit(300).execute().data or []
 
     scored = []
 
-    for page in pages:
-        score = score_page(page, words, known_set)
+    for p in pages:
+        score = score_page(p, words, known_set)
 
-        if score > 1:
+        if score > 0:
             scored.append({
-                "title": page["title"],
-                "url": page["url"],
+                "title": p["title"],
+                "url": p["url"],
                 "score": score,
-                "type": "page",
                 "status": "page"
             })
 

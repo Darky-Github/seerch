@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from supabase import create_client
 import os
 import time
-import meilisearch
+import re
 
 app = FastAPI()
 
@@ -24,17 +24,14 @@ supabase = create_client(
     os.getenv("SUPABASE_KEY")
 )
 
-meili = meilisearch.Client(
-    os.getenv("MEILI_HOST"),
-    os.getenv("MEILI_KEY")
-)
-
-index = meili.index("pages")
-
 rate_store = {}
+cache = {}
+
 LIMIT = 30
 WINDOW = 60
-cache = {}
+
+TITLE_BOOST = 5
+KNOWN_BOOST = 30
 
 
 @app.middleware("http")
@@ -42,9 +39,7 @@ async def rate_limit(request: Request, call_next):
     ip = request.client.host
     now = time.time()
 
-    if ip not in rate_store:
-        rate_store[ip] = []
-
+    rate_store.setdefault(ip, [])
     rate_store[ip] = [t for t in rate_store[ip] if now - t < WINDOW]
 
     if len(rate_store[ip]) >= LIMIT:
@@ -60,6 +55,10 @@ def home():
         return f.read()
 
 
+def tokenize(q):
+    return re.findall(r"\b\w+\b", q.lower())
+
+
 def get_known():
     res = supabase.table("known_sites").select("*").execute()
     return res.data or []
@@ -69,14 +68,33 @@ def get_known_set():
     return {k["url"].lower() for k in get_known() if k.get("url")}
 
 
+def score_page(page, query_words, known_set):
+    text = (page.get("text") or "").lower()
+    title = (page.get("title") or "").lower()
+    url = (page.get("url") or "").lower()
+
+    score = 0
+
+    for w in query_words:
+        score += text.count(w)
+        if w in title:
+            score += TITLE_BOOST
+
+    if url in known_set:
+        score += KNOWN_BOOST
+
+    return max(1, min(100, score))
+
+
 @app.get("/search")
 def search(q: str, limit: int = 20, offset: int = 0):
-    q_lower = q.lower().strip()
-    cache_key = f"{q_lower}:{limit}:{offset}"
+    q = q.lower().strip()
+    cache_key = f"{q}:{limit}:{offset}"
 
     if cache_key in cache:
         return cache[cache_key]
 
+    words = tokenize(q)
     known = get_known()
     known_set = get_known_set()
 
@@ -86,44 +104,40 @@ def search(q: str, limit: int = 20, offset: int = 0):
         name = (site.get("name") or "").lower()
         category = (site.get("category") or "").lower()
 
-        if q_lower == name or q_lower in name or q_lower in category:
+        if q == name or q in name or q in category:
             results.append({
-                "title": site.get("name"),
-                "url": site.get("url"),
+                "title": site["name"],
+                "url": site["url"],
                 "score": 100,
                 "type": "known",
                 "status": "known"
             })
             break
 
-    search_res = index.search(q_lower, {
-        "limit": limit + offset
-    })
+    pages_res = supabase.table("pages") \
+        .select("id,title,url,text") \
+        .limit(200) \
+        .execute()
 
-    hits = search_res.get("hits", [])
+    pages = pages_res.data or []
 
-    page_results = []
+    scored = []
 
-    for hit in hits:
-        url = (hit.get("url") or "").lower()
+    for page in pages:
+        score = score_page(page, words, known_set)
 
-        if url in known_set:
-            score = 100
-            status = "known"
-        else:
-            score = 80
-            status = "page"
+        if score > 1:
+            scored.append({
+                "title": page["title"],
+                "url": page["url"],
+                "score": score,
+                "type": "page",
+                "status": "page"
+            })
 
-        page_results.append({
-            "title": hit.get("title"),
-            "url": hit.get("url"),
-            "score": score,
-            "type": "page",
-            "status": status
-        })
+    scored.sort(key=lambda x: x["score"], reverse=True)
 
-    final_results = results + page_results[offset:offset + limit]
+    final = results + scored[offset:offset + limit]
 
-    cache[cache_key] = final_results
-
-    return final_results
+    cache[cache_key] = final
+    return final

@@ -26,7 +26,6 @@ supabase = create_client(
 rate_store = {}
 LIMIT = 30
 WINDOW = 60
-
 cache = {}
 
 
@@ -47,102 +46,132 @@ async def rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
-def get_known():
-    res = supabase.table("known_sites").select("*").execute()
-    return res.data or []
-
-
-def get_verified():
-    res = supabase.table("verified_sites").select("*").execute()
-    data = res.data or []
-
-    return [v for v in data if v.get("url") and v.get("name")]
-
-
-def match_known(q, known):
-    for site in known:
-        name = (site.get("name") or "").lower()
-        url = (site.get("url") or "").lower()
-        category = (site.get("category") or "").lower()
-
-        if q == name or name in q or q in name or q in url or q in category:
-            return site
-    return None
-
-
 @app.get("/", response_class=HTMLResponse)
 def home():
     with open("frontend/index.html", "r", encoding="utf-8") as f:
         return f.read()
 
 
-@app.get("/search")
-def search(q: str):
-    q_lower = q.lower().strip()
+def get_known():
+    res = supabase.table("known_sites").select("*").execute()
+    return res.data or []
 
-    if q_lower in cache:
-        return cache[q_lower]
+
+def get_known_set():
+    return {k["url"].lower() for k in get_known() if k.get("url")}
+
+
+def tokenize(q):
+    return q.lower().split()
+
+
+def normalize(score, max_score):
+    if max_score <= 0:
+        return 1
+    norm = int((score / max_score) * 100)
+    return max(1, min(100, norm))
+
+
+def search_inverted_index(words, limit=50):
+    res = supabase.table("inverted_index") \
+        .select("page_id, word, weight") \
+        .in_("word", words) \
+        .execute()
+
+    data = res.data or []
+
+    scores = {}
+
+    for row in data:
+        pid = row["page_id"]
+        scores[pid] = scores.get(pid, 0) + row["weight"]
+
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:limit]
+
+    if not sorted_scores:
+        return []
+
+    max_raw = sorted_scores[0][1]
+
+    return [(pid, normalize(score, max_raw)) for pid, score in sorted_scores]
+
+
+@app.get("/search")
+def search(q: str, limit: int = 20, offset: int = 0):
+    q_lower = q.lower().strip()
+    cache_key = f"{q_lower}:{limit}:{offset}"
+
+    if cache_key in cache:
+        return cache[cache_key]
+
+    words = tokenize(q_lower)
 
     known = get_known()
-    verified = get_verified()
-
-    verified_set = {v["url"].lower() for v in verified}
+    known_set = get_known_set()
 
     results = []
 
-    match = match_known(q_lower, known)
+    for site in known:
+        name = (site.get("name") or "").lower()
+        category = (site.get("category") or "").lower()
 
-    if match:
-        url = match["url"].lower()
-        is_verified = url in verified_set
+        if q_lower == name or q_lower in name or q_lower in category:
+            results.append({
+                "title": site.get("name"),
+                "url": site.get("url"),
+                "score": 100,
+                "type": "known",
+                "status": "known"
+            })
+            break
 
-        results.append({
-            "title": match["name"],
-            "url": match["url"],
-            "score": 100,
-            "type": "known",
-            "status": "secure" if is_verified else "known"
-        })
+    page_hits = search_inverted_index(words, limit=100)
 
-    page_res = supabase.table("pages") \
-        .select("title,url,text") \
-        .ilike("text", f"%{q_lower}%") \
-        .limit(20) \
+    if not page_hits:
+        cache[cache_key] = results
+        return results
+
+    page_ids = [p[0] for p in page_hits]
+
+    pages_res = supabase.table("pages") \
+        .select("id,title,url") \
+        .in_("id", page_ids) \
         .execute()
 
-    pages = page_res.data or []
+    pages = pages_res.data or []
+    page_map = {p["id"]: p for p in pages}
 
     page_results = []
 
-    for page in pages:
-        text = (page.get("text") or "").lower()
-        title = page.get("title") or ""
+    for pid, score in page_hits:
+        page = page_map.get(pid)
+        if not page:
+            continue
+
         url = (page.get("url") or "").lower()
 
-        score = text.count(q_lower)
+        final_score = score
 
-        if q_lower in title.lower():
-            score += 5
-
-        if url in verified_set:
-            score += 10
-            status = "secure"
+        if url in known_set:
+            final_score = min(100, final_score + 30)
+            status = "known"
         else:
             status = "page"
 
-        if score > 0:
-            page_results.append({
-                "title": title,
-                "url": url,
-                "score": score,
-                "type": "page",
-                "status": status
-            })
+        final_score = max(1, min(100, final_score))
+
+        page_results.append({
+            "title": page.get("title"),
+            "url": page.get("url"),
+            "score": final_score,
+            "type": "page",
+            "status": status
+        })
 
     page_results.sort(key=lambda x: x["score"], reverse=True)
 
-    final_results = results + page_results[:9]
+    final_results = results + page_results[offset:offset + limit]
 
-    cache[q_lower] = final_results
+    cache[cache_key] = final_results
 
     return final_results

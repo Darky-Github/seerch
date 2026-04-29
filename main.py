@@ -25,6 +25,8 @@ supabase = create_client(
     os.getenv("SUPABASE_KEY")
 )
 
+# ---------------- STATE ----------------
+
 rate_store = {}
 cache = {}
 cache_time = {}
@@ -57,7 +59,7 @@ async def rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
-# ---------------- HOME ----------------
+# ---------------- FRONTEND ----------------
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -65,7 +67,7 @@ def home():
         return f.read()
 
 
-# ---------------- TOKENIZE ----------------
+# ---------------- TOKENIZATION ----------------
 
 def tokenize(text):
     return re.findall(r"\b\w+\b", text.lower())
@@ -98,9 +100,27 @@ build_idf()
 
 # ---------------- SPELLCHECK ----------------
 
+def levenshtein(a, b):
+    if abs(len(a) - len(b)) > 2:
+        return 999
+
+    dp = list(range(len(b) + 1))
+
+    for i, ca in enumerate(a, 1):
+        prev = dp[0]
+        dp[0] = i
+
+        for j, cb in enumerate(b, 1):
+            temp = dp[j]
+            cost = 0 if ca == cb else 1
+            dp[j] = min(dp[j] + 1, dp[j - 1] + 1, prev + cost)
+            prev = temp
+
+    return dp[-1]
+
+
 def correct_query(words):
     vocab = DOC_FREQ.keys()
-
     corrected = []
     changed = False
 
@@ -127,27 +147,7 @@ def correct_query(words):
     return " ".join(corrected) if changed else None
 
 
-def levenshtein(a, b):
-    if abs(len(a) - len(b)) > 2:
-        return 999
-
-    dp = list(range(len(b) + 1))
-
-    for i, ca in enumerate(a, 1):
-        prev = dp[0]
-        dp[0] = i
-
-        for j, cb in enumerate(b, 1):
-            temp = dp[j]
-            cost = 0 if ca == cb else 1
-
-            dp[j] = min(dp[j] + 1, dp[j - 1] + 1, prev + cost)
-            prev = temp
-
-    return dp[-1]
-
-
-# ---------------- SEARCH HELPERS ----------------
+# ---------------- DATA HELPERS ----------------
 
 def get_known():
     return supabase.table("known_sites").select("*").execute().data or []
@@ -156,6 +156,8 @@ def get_known():
 def get_known_set():
     return {k["url"].lower() for k in get_known() if k.get("url")}
 
+
+# ---------------- SCORING ----------------
 
 def score_page(page, words, known_set):
     text = (page.get("text") or "").lower()
@@ -166,15 +168,17 @@ def score_page(page, words, known_set):
 
     for w in words:
         tf = text.count(w)
+
         if tf:
             score += tf * idf(w)
-            if w in title:
-                score += TITLE_BOOST * idf(w)
+
+        if w in title:
+            score += TITLE_BOOST * idf(w)
 
     if url in known_set:
         score += KNOWN_BOOST
 
-    return int(score)
+    return score
 
 
 # ---------------- SEARCH ----------------
@@ -199,6 +203,7 @@ def search(q: str, limit: int = 20, offset: int = 0):
 
     results = []
 
+    # ---------------- VERIFIED MATCH ----------------
     for site in known:
         name = (site.get("name") or "").lower()
         category = (site.get("category") or "").lower()
@@ -207,11 +212,12 @@ def search(q: str, limit: int = 20, offset: int = 0):
             results.append({
                 "title": site["name"],
                 "url": site["url"],
-                "score": 100,
-                "status": "known"
+                "score": float("inf"),
+                "status": "verified"
             })
             break
 
+    # ---------------- PAGE SCORING ----------------
     pages = supabase.table("pages").select("title,url,text").limit(300).execute().data or []
 
     scored = []

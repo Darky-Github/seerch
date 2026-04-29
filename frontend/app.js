@@ -12,7 +12,16 @@ async function search() {
   if (data.did_you_mean) {
     const hint = document.createElement("div");
     hint.className = "suggestion";
-    hint.innerHTML = `Did you mean: <b>${data.did_you_mean}</b>`;
+
+    hint.innerHTML = `
+      Did you mean: <b>${data.did_you_mean}</b>
+    `;
+
+    hint.onclick = () => {
+      document.getElementById("query").value = data.did_you_mean;
+      search();
+    };
+
     resultsBox.appendChild(hint);
   }
 
@@ -27,9 +36,19 @@ async function search() {
     const div = document.createElement("div");
     div.className = "result";
 
+    const badge =
+      item.status === "verified"
+        ? "Verified"
+        : "Result";
+
+    const scoreText =
+      item.score === Infinity
+        ? "Top Match"
+        : item.score;
+
     div.innerHTML = `
       <a href="${item.url}" target="_blank">${item.title}</a>
-      <div class="score">Score: ${item.score} (${item.status})</div>
+      <div class="score">${scoreText} • ${badge}</div>
     `;
 
     resultsBox.appendChild(div);

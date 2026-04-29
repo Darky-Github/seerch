@@ -73,7 +73,7 @@ def tokenize(text):
     return re.findall(r"\b\w+\b", text.lower())
 
 
-# ---------------- IDF ----------------
+# ---------------- BUILD IDF ----------------
 
 def build_idf():
     global DOC_FREQ, DOC_COUNT
@@ -82,11 +82,9 @@ def build_idf():
     pages = res.data or []
 
     DOC_COUNT = len(pages)
-    DOC_FREQ.clear()
 
     for p in pages:
         words = set(tokenize((p.get("title") or "") + " " + (p.get("text") or "")))
-
         for w in words:
             DOC_FREQ[w] = DOC_FREQ.get(w, 0) + 1
 
@@ -191,42 +189,42 @@ def fetch_pages(page_ids):
 
 # ---------------- SNIPPET ----------------
 
-def make_snippet(text, length=60):
+def make_snippet(text):
     words = text.split()
-    return " ".join(words[:length]) if words else ""
+    return " ".join(words[:60]) + "..." if len(words) > 60 else text
 
 
-# ---------------- SCORING ----------------
+# ---------------- MODE FILTER ----------------
 
-def score_page(page, words, known_set):
-    text = (page.get("text") or "").lower()
-    title = (page.get("title") or "").lower()
-    url = (page.get("url") or "").lower()
+def apply_mode(results, mode):
 
-    score = 0.0
+    if mode == "raw":
+        return results
 
-    for w in words:
-        tf = text.count(w)
+    if mode == "social":
+        keywords = ["twitter", "reddit", "instagram", "facebook", "youtube", "vk", "bilibili", "niconico", "quora", "discord", "4chan", "whatsapp", "telegram", "viber", "signal"]
+        return [r for r in results if any(k in r["url"].lower() for k in keywords)]
 
-        if tf:
-            score += tf * idf(w)
+    if mode == "family":
+        blocked = ["xxx", "porn", "adultery", "rape", "nude"]
+        return [r for r in results if not any(b in r["url"].lower() for b in blocked)]
 
-        if w in title:
-            score += TITLE_BOOST * idf(w)
+    if mode == "learner":
+        boost = ["wikipedia", "edu", "docs", "learn", "education", "wikihow", "wiki", "documents"]
+        for r in results:
+            if any(b in r["url"].lower() for b in boost):
+                r["score"] += 50
 
-    if url in known_set:
-        score += KNOWN_BOOST
-
-    return score
+    return results
 
 
 # ---------------- SEARCH ----------------
 
 @app.get("/search")
-def search(q: str, limit: int = 20, offset: int = 0):
+def search(q: str, mode: str = "casual", limit: int = 20, offset: int = 0):
 
     q = q.lower().strip()
-    cache_key = f"{q}:{limit}:{offset}"
+    cache_key = f"{q}:{mode}:{limit}:{offset}"
 
     if cache_key in cache and time.time() - cache_time.get(cache_key, 0) < CACHE_TTL:
         return cache[cache_key]
@@ -242,7 +240,7 @@ def search(q: str, limit: int = 20, offset: int = 0):
 
     results = []
 
-    # ---------------- VERIFIED ----------------
+    # VERIFIED
     for site in known:
         name = (site.get("name") or "").lower()
         category = (site.get("category") or "").lower()
@@ -257,7 +255,7 @@ def search(q: str, limit: int = 20, offset: int = 0):
             })
             break
 
-    # ---------------- INDEX SEARCH ----------------
+    # INVERTED INDEX
     candidate_scores = get_candidate_pages(words)
     page_ids = list(candidate_scores.keys())
     pages = fetch_pages(page_ids)
@@ -265,20 +263,36 @@ def search(q: str, limit: int = 20, offset: int = 0):
     scored = []
 
     for p in pages:
-        base_score = candidate_scores.get(p["id"], 0)
-        tfidf_score = score_page(p, words, known_set)
+        base = candidate_scores.get(p["id"], 0)
 
-        final_score = base_score + tfidf_score
+        tfidf = 0
+        text = (p.get("text") or "").lower()
+        title = (p.get("title") or "").lower()
+
+        for w in words:
+            tf = text.count(w)
+            if tf:
+                tfidf += tf * idf(w)
+            if w in title:
+                tfidf += TITLE_BOOST * idf(w)
+
+        url = (p.get("url") or "").lower()
+
+        if url in known_set:
+            tfidf += KNOWN_BOOST
+
+        final_score = base + tfidf
 
         if final_score > 0:
             scored.append({
                 "title": p["title"],
                 "url": p["url"],
                 "score": round(final_score, 2),
-                "trust": "Verified" if p["url"].lower() in known_set else "Normal",
-                "snippet": make_snippet(p.get("text", ""))
+                "trust": "Verified" if url in known_set else "Normal",
+                "snippet": make_snippet(p.get("text") or "")
             })
 
+    scored = apply_mode(scored, mode)
     scored.sort(key=lambda x: x["score"], reverse=True)
 
     final = results + scored[offset:offset + limit]

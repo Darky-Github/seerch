@@ -1,73 +1,82 @@
-body {
-  margin: 0;
-  font-family: Arial, sans-serif;
-  background: #0f0f0f;
-  color: #fff;
+async function search() {
+  const q = document.getElementById("query").value.trim();
+  const resultsBox = document.getElementById("results");
+
+  if (!q) return;
+
+  window.history.pushState({}, "", `/search?q=${encodeURIComponent(q)}`);
+
+  resultsBox.innerHTML = "Searching...";
+
+  try {
+    const res = await fetch(`/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+
+    resultsBox.innerHTML = "";
+
+    // Did you mean
+    if (data.did_you_mean) {
+      const hint = document.createElement("div");
+      hint.className = "suggestion";
+
+      hint.innerHTML = `Did you mean: <b>${data.did_you_mean}</b>`;
+
+      hint.onclick = () => {
+        document.getElementById("query").value = data.did_you_mean;
+        search();
+      };
+
+      resultsBox.appendChild(hint);
+    }
+
+    const results = data.results || [];
+
+    if (!results.length) {
+      resultsBox.innerHTML = "<p>No results found</p>";
+      return;
+    }
+
+    results.forEach(item => {
+      const div = document.createElement("div");
+      div.className = "result";
+
+      const trustClass = item.trust === "Verified" ? "verified" : "normal";
+
+      div.innerHTML = `
+        <a href="${item.url}" target="_blank">${item.title}</a>
+        <div class="meta">
+          ${item.url}<br>
+          Score: ${item.score}
+          <span class="badge ${trustClass}">${item.trust}</span>
+        </div>
+        <div class="snippet">
+          ${item.snippet || ""}
+        </div>
+      `;
+
+      resultsBox.appendChild(div);
+    });
+
+  } catch (err) {
+    resultsBox.innerHTML = "<p>Error fetching results</p>";
+  }
 }
 
-.container {
-  max-width: 700px;
-  margin: 100px auto;
-  text-align: center;
-}
+// Enter key support
+document.addEventListener("DOMContentLoaded", () => {
+  const input = document.getElementById("query");
 
-.logo {
-  font-size: 48px;
-  margin-bottom: 30px;
-}
+  input.addEventListener("keypress", function (e) {
+    if (e.key === "Enter") {
+      search();
+    }
+  });
 
-.search-box {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-}
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get("q");
 
-input {
-  width: 60%;
-  padding: 12px;
-  font-size: 16px;
-  border-radius: 6px;
-  border: none;
-}
-
-button {
-  padding: 12px 16px;
-  border: none;
-  border-radius: 6px;
-  background: #4a90e2;
-  color: white;
-  cursor: pointer;
-}
-
-button:hover {
-  background: #357ab8;
-}
-
-#results {
-  margin-top: 30px;
-  text-align: left;
-}
-
-.result {
-  padding: 12px;
-  border-bottom: 1px solid #333;
-}
-
-.result a {
-  color: #4a90e2;
-  text-decoration: none;
-  font-size: 18px;
-}
-
-.score {
-  font-size: 12px;
-  color: #888;
-}
-
-.suggestion {
-  margin: 10px 0;
-  padding: 10px;
-  background: #1a1a1a;
-  border-radius: 6px;
-  color: #aaa;
-}
+  if (q) {
+    input.value = q;
+    search();
+  }
+});

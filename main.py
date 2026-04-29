@@ -157,6 +157,37 @@ def get_known_set():
     return {k["url"].lower() for k in get_known() if k.get("url")}
 
 
+# ---------------- INVERTED INDEX RETRIEVAL ----------------
+
+def get_candidate_pages(words):
+    res = supabase.table("inverted_index") \
+        .select("page_id, weight") \
+        .in_("word", words) \
+        .execute()
+
+    data = res.data or []
+
+    scores = {}
+
+    for row in data:
+        pid = row["page_id"]
+        scores[pid] = scores.get(pid, 0) + row["weight"]
+
+    return scores
+
+
+def fetch_pages(page_ids):
+    if not page_ids:
+        return []
+
+    res = supabase.table("pages") \
+        .select("id,title,url,text") \
+        .in_("id", page_ids) \
+        .execute()
+
+    return res.data or []
+
+
 # ---------------- SCORING ----------------
 
 def score_page(page, words, known_set):
@@ -217,19 +248,25 @@ def search(q: str, limit: int = 20, offset: int = 0):
             })
             break
 
-    # ---------------- PAGES ----------------
-    pages = supabase.table("pages").select("title,url,text").limit(300).execute().data or []
+    # ---------------- INVERTED INDEX SEARCH ----------------
+    candidate_scores = get_candidate_pages(words)
+
+    page_ids = list(candidate_scores.keys())
+    pages = fetch_pages(page_ids)
 
     scored = []
 
     for p in pages:
-        score = score_page(p, words, known_set)
+        base_score = candidate_scores.get(p["id"], 0)
+        tfidf_score = score_page(p, words, known_set)
 
-        if score > 0:
+        final_score = base_score + tfidf_score
+
+        if final_score > 0:
             scored.append({
                 "title": p["title"],
                 "url": p["url"],
-                "score": score,
+                "score": final_score,
                 "status": "page"
             })
 

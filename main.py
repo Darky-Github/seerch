@@ -67,13 +67,13 @@ def home():
         return f.read()
 
 
-# ---------------- TOKENIZATION ----------------
+# ---------------- TOKENIZE ----------------
 
 def tokenize(text):
     return re.findall(r"\b\w+\b", text.lower())
 
 
-# ---------------- BUILD IDF ----------------
+# ---------------- IDF ----------------
 
 def build_idf():
     global DOC_FREQ, DOC_COUNT
@@ -147,7 +147,7 @@ def correct_query(words):
     return " ".join(corrected) if changed else None
 
 
-# ---------------- DATA HELPERS ----------------
+# ---------------- DATA ----------------
 
 def get_known():
     return supabase.table("known_sites").select("*").execute().data or []
@@ -164,7 +164,7 @@ def score_page(page, words, known_set):
     title = (page.get("title") or "").lower()
     url = (page.get("url") or "").lower()
 
-    score = 0
+    score = 0.0
 
     for w in words:
         tf = text.count(w)
@@ -203,7 +203,7 @@ def search(q: str, limit: int = 20, offset: int = 0):
 
     results = []
 
-    # ---------------- VERIFIED MATCH ----------------
+    # ---------------- VERIFIED ----------------
     for site in known:
         name = (site.get("name") or "").lower()
         category = (site.get("category") or "").lower()
@@ -212,12 +212,12 @@ def search(q: str, limit: int = 20, offset: int = 0):
             results.append({
                 "title": site["name"],
                 "url": site["url"],
-                "score": float("inf"),
+                "score": 1_000_000_000,
                 "status": "verified"
             })
             break
 
-    # ---------------- PAGE SCORING ----------------
+    # ---------------- PAGES ----------------
     pages = supabase.table("pages").select("title,url,text").limit(300).execute().data or []
 
     scored = []

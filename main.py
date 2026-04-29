@@ -82,6 +82,7 @@ def build_idf():
     pages = res.data or []
 
     DOC_COUNT = len(pages)
+    DOC_FREQ.clear()
 
     for p in pages:
         words = set(tokenize((p.get("title") or "") + " " + (p.get("text") or "")))
@@ -157,7 +158,7 @@ def get_known_set():
     return {k["url"].lower() for k in get_known() if k.get("url")}
 
 
-# ---------------- INVERTED INDEX RETRIEVAL ----------------
+# ---------------- INVERTED INDEX ----------------
 
 def get_candidate_pages(words):
     res = supabase.table("inverted_index") \
@@ -186,6 +187,13 @@ def fetch_pages(page_ids):
         .execute()
 
     return res.data or []
+
+
+# ---------------- SNIPPET ----------------
+
+def make_snippet(text, length=60):
+    words = text.split()
+    return " ".join(words[:length]) if words else ""
 
 
 # ---------------- SCORING ----------------
@@ -243,14 +251,14 @@ def search(q: str, limit: int = 20, offset: int = 0):
             results.append({
                 "title": site["name"],
                 "url": site["url"],
-                "score": 1_000_000_000,
-                "status": "verified"
+                "score": 999999,
+                "trust": "Verified",
+                "snippet": ""
             })
             break
 
-    # ---------------- INVERTED INDEX SEARCH ----------------
+    # ---------------- INDEX SEARCH ----------------
     candidate_scores = get_candidate_pages(words)
-
     page_ids = list(candidate_scores.keys())
     pages = fetch_pages(page_ids)
 
@@ -266,8 +274,9 @@ def search(q: str, limit: int = 20, offset: int = 0):
             scored.append({
                 "title": p["title"],
                 "url": p["url"],
-                "score": final_score,
-                "status": "page"
+                "score": round(final_score, 2),
+                "trust": "Verified" if p["url"].lower() in known_set else "Normal",
+                "snippet": make_snippet(p.get("text", ""))
             })
 
     scored.sort(key=lambda x: x["score"], reverse=True)

@@ -1,62 +1,52 @@
 body {
   margin: 0;
-  font-family: Arial, sans-serif;
-  background: #0f0f0f;
-  color: #fff;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #0b0b0b;
+  color: #eaeaea;
 }
 
 .container {
   max-width: 800px;
-  margin: 80px auto;
-  padding: 0 20px;
+  margin: 60px auto;
+  padding: 20px;
 }
 
 .logo {
-  font-size: 52px;
   text-align: center;
+  font-size: 48px;
+  font-weight: bold;
 }
 
 .tagline {
   text-align: center;
-  color: #aaa;
+  color: #888;
+  margin-bottom: 30px;
 }
 
-.search-box {
+/* SEARCH */
+
+.search-section {
   display: flex;
   gap: 10px;
-  margin-top: 20px;
+  background: #111;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid #222;
 }
 
-input {
+.search-section input {
   flex: 1;
-  padding: 12px;
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 16px;
+  outline: none;
 }
 
-button {
-  padding: 12px;
-}
-
-.modes {
-  margin-top: 20px;
-  font-size: 14px;
-}
-
-.result {
-  margin-top: 20px;
-}
-
-.meta {
-  font-size: 12px;
-  color: #888;
-}
-
-.snippet {
-  margin-top: 5px;
-  color: #ccc;
-}
-
-.footer {
-  margin-top: 40px;
-  text-align: center;
-  color: #666;
-}
+.search-section button {
+  background: #2563eb;
+  border: none;
+  color: white;
+  padding: 10px 18px;
+  border-radius: 8px;
+  cursor

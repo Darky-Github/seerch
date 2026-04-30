@@ -9,7 +9,12 @@
 <body>
 
   <div class="container">
-    <h1 class="logo">SEErch</h1>
+
+    <div class="top-bar">
+      <h1 class="logo">SEErch</h1>
+      <button class="theme-toggle" onclick="toggleTheme()">Theme</button>
+    </div>
+
     <p class="tagline">Be yourself.</p>
 
     <div class="search-section">
@@ -24,10 +29,13 @@
       <label><input type="radio" name="mode" value="family"> Family</label>
     </div>
 
+    <div id="info"></div>
     <div id="results"></div>
 
+    <div id="pagination"></div>
+
     <footer>
-      © 2026 SEErch Darky-Github
+      © 2026 SEErch
     </footer>
   </div>
 

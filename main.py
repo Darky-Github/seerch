@@ -39,17 +39,11 @@ KNOWN_BOOST = 30
 DOC_FREQ = {}
 DOC_COUNT = 0
 
-
-# ---------------- TOKENIZE ----------------
-
 STOPWORDS = {"the", "is", "and", "a", "to", "of", "in"}
 
 
 def tokenize(text):
     return [w for w in re.findall(r"\b\w+\b", text.lower()) if w not in STOPWORDS]
-
-
-# ---------------- IDF ----------------
 
 def build_idf():
     global DOC_FREQ, DOC_COUNT
@@ -75,9 +69,6 @@ def idf(word):
 
 build_idf()
 
-
-# ---------------- RATE LIMIT ----------------
-
 @app.middleware("http")
 async def rate_limit(request: Request, call_next):
     ip = request.headers.get("x-forwarded-for", request.client.host)
@@ -92,17 +83,11 @@ async def rate_limit(request: Request, call_next):
     rate_store[ip].append(now)
     return await call_next(request)
 
-
-# ---------------- FRONTEND ----------------
-
 @app.get("/", response_class=HTMLResponse)
 def home():
     with open("frontend/index.html", "r", encoding="utf-8") as f:
         return f.read()
-
-
-# ---------------- SEARCH ----------------
-
+        
 def get_candidate_pages(words):
     res = supabase.table("inverted_index") \
         .select("page_id, weight, word") \
@@ -157,7 +142,6 @@ def search(q: str, limit: int = 20):
 
     scores = get_candidate_pages(words)
 
-    # LIMIT EARLY (important)
     top_ids = sorted(scores, key=scores.get, reverse=True)[:100]
 
     pages = fetch_pages(top_ids)

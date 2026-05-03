@@ -66,13 +66,9 @@ function renderPagination() {
   }
 }
 
-/* THEME */
-
 function toggleTheme() {
   document.body.classList.toggle("light");
 }
-
-/* ENTER KEY */
 
 document.getElementById("query").addEventListener("keypress", function (e) {
   if (e.key === "Enter") search();

@@ -1,20 +1,40 @@
-# SEErch [DISCONTINUED] 
+# SEErch (DISCONTINUED)
+- See Searchcovery Repo on my Github to understand why SEErch was dicontinued
 
-* This is the official Repository of the SEErch Project API & Frontend. 
-* SEErch Development have been stopped due to Developer Burnout as I am the only person who is making this.
-* I also do not have the enough Infrastructure and Money to continue this project so I have made it Open Source so if any one wants to use it, they can clone this.
+---
 
 # Features
 
-* TF IDF Type Ranking
-* Inverted Index
+- Search modes:
+- Casual (balanced results)
+- Learner (boosts educational content)
+- Social (prioritizes social platforms)
+- Family (safe / filtered results)
+- Raw (unfiltered results, use at own risk)
 
-# How to Use
+- Spell correction + “Did you mean?” system  
+- Result formatting system:
+- Title  
+- Relevance score  
+- Trust label (Verified / Normal)  
+- Snippet preview  
 
-* SEErch mainly used Supabase so if you are using something else you would need to tweak this yourself.
-* I recommend to make this yourself instead of using my repository but Searchcovery Engine is recommended to use. 
-* You can use the Searchcovery Crawler & Indexer also from my Github. 
+- Mode-based filtering layer  
+- Query preprocessing (tokenization + normalization)  
+- Clean UI-first search interface  
+- Supabase integration for optional metadata/settings  
+- Render-friendly stateless API design  
+
+---
+
+# Important Warning
+
+- Do NOT use “SEErch” as public branding  
+- Searchcovery is discontinued and not maintained
+- SEErch is discontinued and not maintained too
+
+---
 
 # License
 
-MIT
+MIT License

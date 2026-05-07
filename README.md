@@ -1,5 +1,4 @@
-# SEErch (DISCONTINUED)
-- See Searchcovery Repo on my Github to understand why SEErch was dicontinued
+# SEErch DISCONTINUED
 
 ---
 
